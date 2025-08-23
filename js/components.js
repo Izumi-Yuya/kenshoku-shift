@@ -1,12 +1,10 @@
 // React コンポーネント群
 
-const { useState, useMemo, useEffect } = React;
-
 // ヘッダーコンポーネント
 function Header({ onAutoAssign, onAutoAssignKenshoku, onSave, onLoad, onOpenCSV }) {
     return React.createElement('header', {
         className: "sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200"
-    }, 
+    },
         React.createElement('div', {
             className: "mx-auto max-w-7xl px-4 py-3 flex items-center justify-between"
         },
@@ -74,7 +72,7 @@ function TabNavigation({ activeTab, onTabChange, year, month, onYearChange, onMo
                 className: "outline-none bg-transparent",
                 value: year,
                 onChange: e => onYearChange(Number(e.target.value))
-            }, years.map(y => 
+            }, years.map(y =>
                 React.createElement('option', { key: y, value: y }, y)
             ))
         ),
@@ -88,7 +86,7 @@ function TabNavigation({ activeTab, onTabChange, year, month, onYearChange, onMo
                 className: "outline-none bg-transparent",
                 value: month,
                 onChange: e => onMonthChange(Number(e.target.value))
-            }, months.map(m => 
+            }, months.map(m =>
                 React.createElement('option', { key: m, value: m }, m)
             ))
         ),
@@ -97,11 +95,10 @@ function TabNavigation({ activeTab, onTabChange, year, month, onYearChange, onMo
         }, tabs.map(({ key, label }) =>
             React.createElement('button', {
                 key: key,
-                className: `px-4 py-2 text-sm transition-colors ${
-                    activeTab === key 
-                        ? "bg-indigo-600 text-white" 
-                        : "text-slate-600 hover:bg-slate-50"
-                }`,
+                className: `px-4 py-2 text-sm transition-colors ${activeTab === key
+                    ? "bg-indigo-600 text-white"
+                    : "text-slate-600 hover:bg-slate-50"
+                    }`,
                 onClick: () => onTabChange(key)
             }, label)
         ))
@@ -129,8 +126,8 @@ function DownloadCenter({ dl, onClose, onSelectType, onCopyToClipboard }) {
                     onClick: onClose
                 }, "✕")
             ),
-            
-            dl.kind === 'menu' ? 
+
+            dl.kind === 'menu' ?
                 React.createElement('div', {
                     className: "space-y-4"
                 },
@@ -209,7 +206,7 @@ function DownloadCenter({ dl, onClose, onSelectType, onCopyToClipboard }) {
                         }, "プレビュー:"),
                         React.createElement('pre', {
                             className: "bg-slate-50 p-3 rounded-lg text-xs overflow-x-auto max-h-60 overflow-y-auto"
-                        }, 
+                        },
                             dl.text.slice(0, 2000),
                             dl.text.length > 2000 && "\n... (省略)"
                         )

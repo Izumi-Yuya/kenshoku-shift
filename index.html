@@ -8,6 +8,7 @@
     <meta name="keywords" content="介護施設,検食,シフト,ローテーション,管理システム">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#4f46e5">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%234f46e5'/%3E%3Ctext x='50' y='60' text-anchor='middle' fill='white' font-size='40' font-family='sans-serif'%3E🍽️%3C/text%3E%3C/svg%3E">
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -29,6 +30,21 @@
     <script src="js/components.js"></script>
 
     <script type="text/babel">
+        // 開発用警告を非表示
+        if (typeof console !== 'undefined') {
+            const originalWarn = console.warn;
+            console.warn = function(...args) {
+                if (args[0] && typeof args[0] === 'string') {
+                    if (args[0].includes('React DevTools') || 
+                        args[0].includes('tailwindcss.com should not be used in production') ||
+                        args[0].includes('precompile your scripts for production')) {
+                        return;
+                    }
+                }
+                originalWarn.apply(console, args);
+            };
+        }
+
         const { useState, useMemo, useEffect } = React;
 
         function KenshokuApp() {
