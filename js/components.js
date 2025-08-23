@@ -216,9 +216,234 @@ function DownloadCenter({ dl, onClose, onSelectType, onCopyToClipboard }) {
     );
 }
 
+// 検索可能なセレクトコンポーネント
+function SearchableSelect({ 
+    value, 
+    onChange, 
+    options, 
+    placeholder = "選択してください", 
+    emptyText = "未割当",
+    className = "",
+    disabled = false 
+}) {
+    const [isOpen, setIsOpen] = React.useState(false);
+    const [searchTerm, setSearchTerm] = React.useState('');
+    const [highlightedIndex, setHighlightedIndex] = React.useState(-1);
+    const containerRef = React.useRef(null);
+    const inputRef = React.useRef(null);
+
+    // 検索でフィルタリングされたオプション
+    const filteredOptions = React.useMemo(() => {
+        if (!searchTerm) return options;
+        return options.filter(option => 
+            option.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [options, searchTerm]);
+
+    // 選択されたオプションの表示テキスト
+    const displayValue = value || emptyText;
+
+    // 外部クリックでドロップダウンを閉じる
+    React.useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (containerRef.current && !containerRef.current.contains(event.target)) {
+                setIsOpen(false);
+                setSearchTerm('');
+                setHighlightedIndex(-1);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // キーボードナビゲーション
+    const handleKeyDown = (event) => {
+        if (disabled) return;
+
+        switch (event.key) {
+            case 'Enter':
+                event.preventDefault();
+                if (isOpen && highlightedIndex >= 0) {
+                    const selectedOption = filteredOptions[highlightedIndex];
+                    onChange(selectedOption);
+                    setIsOpen(false);
+                    setSearchTerm('');
+                    setHighlightedIndex(-1);
+                } else if (!isOpen) {
+                    setIsOpen(true);
+                    setTimeout(() => inputRef.current?.focus(), 0);
+                }
+                break;
+            case 'Escape':
+                setIsOpen(false);
+                setSearchTerm('');
+                setHighlightedIndex(-1);
+                break;
+            case 'ArrowDown':
+                event.preventDefault();
+                if (!isOpen) {
+                    setIsOpen(true);
+                    setTimeout(() => inputRef.current?.focus(), 0);
+                } else {
+                    setHighlightedIndex(prev => 
+                        prev < filteredOptions.length - 1 ? prev + 1 : prev
+                    );
+                }
+                break;
+            case 'ArrowUp':
+                event.preventDefault();
+                if (isOpen) {
+                    setHighlightedIndex(prev => prev > 0 ? prev - 1 : -1);
+                }
+                break;
+            case 'Tab':
+                if (isOpen) {
+                    setIsOpen(false);
+                    setSearchTerm('');
+                    setHighlightedIndex(-1);
+                }
+                break;
+        }
+    };
+
+    const handleInputChange = (event) => {
+        const newValue = event.target.value;
+        setSearchTerm(newValue);
+        setHighlightedIndex(-1);
+        
+        // 直接入力での選択も可能にする
+        if (options.includes(newValue)) {
+            onChange(newValue);
+        } else if (newValue === '') {
+            onChange('');
+        }
+    };
+
+    const handleOptionClick = (option) => {
+        onChange(option);
+        setIsOpen(false);
+        setSearchTerm('');
+        setHighlightedIndex(-1);
+    };
+
+    const handleToggle = () => {
+        if (disabled) return;
+        
+        if (!isOpen) {
+            setIsOpen(true);
+            setTimeout(() => inputRef.current?.focus(), 0);
+        } else {
+            setIsOpen(false);
+            setSearchTerm('');
+            setHighlightedIndex(-1);
+        }
+    };
+
+    const handleClear = (event) => {
+        event.stopPropagation();
+        onChange('');
+        setSearchTerm('');
+        setIsOpen(false);
+        setHighlightedIndex(-1);
+    };
+
+    return React.createElement('div', {
+        ref: containerRef,
+        className: `relative ${className}`,
+        onKeyDown: handleKeyDown
+    },
+        // メインの入力エリア
+        React.createElement('div', {
+            className: `
+                w-full px-3 py-2 text-sm border border-slate-200 rounded-lg 
+                focus-within:ring-2 focus-within:ring-primary-500 focus-within:border-transparent 
+                transition-smooth cursor-pointer bg-white card-interactive
+                ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-slate-300 hover:shadow-sm'}
+                ${isOpen ? 'ring-2 ring-primary-500 border-transparent shadow-md' : ''}
+            `,
+            onClick: handleToggle
+        },
+            React.createElement('div', {
+                className: "flex items-center justify-between"
+            },
+                // 表示値または検索入力
+                isOpen ? 
+                    React.createElement('input', {
+                        ref: inputRef,
+                        type: 'text',
+                        value: searchTerm,
+                        onChange: handleInputChange,
+                        placeholder: `${placeholder}を検索...`,
+                        className: "flex-1 outline-none bg-transparent",
+                        disabled: disabled,
+                        onClick: (e) => e.stopPropagation()
+                    }) :
+                    React.createElement('span', {
+                        className: `flex-1 ${!value ? 'text-slate-400' : 'text-slate-900'}`
+                    }, displayValue),
+                
+                // アクションボタン
+                React.createElement('div', {
+                    className: "flex items-center gap-1"
+                },
+                    // クリアボタン
+                    value && !disabled && React.createElement('button', {
+                        type: 'button',
+                        onClick: handleClear,
+                        className: "p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors",
+                        'aria-label': 'クリア'
+                    }, '✕'),
+                    
+                    // ドロップダウン矢印
+                    React.createElement('div', {
+                        className: `transition-transform ${isOpen ? 'rotate-180' : ''}`
+                    }, '▼')
+                )
+            )
+        ),
+
+        // ドロップダウンリスト
+        isOpen && React.createElement('div', {
+            className: `
+                absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 
+                rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto fade-in
+                backdrop-blur-sm
+            `
+        },
+            // 空のオプション
+            React.createElement('div', {
+                className: `
+                    px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 text-slate-400
+                    ${highlightedIndex === -1 ? 'bg-primary-50 text-primary-700' : ''}
+                `,
+                onClick: () => handleOptionClick('')
+            }, `👤 ${emptyText}`),
+
+            // フィルタリングされたオプション
+            filteredOptions.length > 0 ? 
+                filteredOptions.map((option, index) => 
+                    React.createElement('div', {
+                        key: option,
+                        className: `
+                            px-3 py-2 text-sm cursor-pointer hover:bg-slate-50
+                            ${highlightedIndex === index ? 'bg-primary-50 text-primary-700' : 'text-slate-900'}
+                            ${value === option ? 'bg-primary-100 text-primary-800 font-medium' : ''}
+                        `,
+                        onClick: () => handleOptionClick(option)
+                    }, option)
+                ) :
+                searchTerm && React.createElement('div', {
+                    className: "px-3 py-2 text-sm text-slate-400 italic"
+                }, '該当するスタッフが見つかりません')
+        )
+    );
+}
+
 // エクスポート
 window.Components = {
     Header,
     TabNavigation,
-    DownloadCenter
+    DownloadCenter,
+    SearchableSelect
 };
