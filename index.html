@@ -71,11 +71,19 @@
             // 初期スタッフ設定
             const defaultConfigs = useMemo(() => {
                 const pad = (n) => n.toString().padStart(2, "0");
-                const makeNames = (label, n) => Array.from({ length: n }, (_, i) => `${label}${pad(i + 1)}`);
+                const makeStaff = (label, n) => Array.from({ length: n }, (_, i) => ({
+                    id: `${label}_${pad(i + 1)}`,
+                    name: `${label}${pad(i + 1)}`,
+                    role: label === "介護" ? "介護" : label === "ナース" ? "ナース" : "事務",
+                    active: true,
+                    mealRestrictions: [], // 担当できない食事
+                    shiftRestrictions: [], // 担当できないシフト
+                    notes: ""
+                }));
                 return [
-                    { role: "介護", count: 40, requirements: { 早: 3, 日: 6, 遅: 3, 夜: 2 }, staff: makeNames("介護", 40) },
-                    { role: "ナース", count: 11, requirements: { 早: 0, 日: 2, 遅: 0, 夜: 1 }, staff: makeNames("ナース", 11) },
-                    { role: "事務", count: 6, requirements: { 早: 0, 日: 2, 遅: 0, 夜: 0 }, staff: makeNames("事務", 6) },
+                    { role: "介護", count: 40, requirements: { 早: 3, 日: 6, 遅: 3, 夜: 2 }, staff: makeStaff("介護", 40) },
+                    { role: "ナース", count: 11, requirements: { 早: 0, 日: 2, 遅: 0, 夜: 1 }, staff: makeStaff("ナース", 11) },
+                    { role: "事務", count: 6, requirements: { 早: 0, 日: 2, 遅: 0, 夜: 0 }, staff: makeStaff("事務", 6) },
                 ];
             }, []);
 
@@ -119,9 +127,9 @@
             const [kenshoku, setKenshoku] = useState(emptyKenshokuForMonth);
 
             // 自動割当関数
-            function makeInitialStats(names) {
+            function makeInitialStats(staffList) {
                 const m = new Map();
-                names.forEach(n => m.set(n, { total: 0, consecDays: 0, lastShift: null, nightsIn7: [] }));
+                staffList.forEach(staff => m.set(staff.name, { total: 0, consecDays: 0, lastShift: null, nightsIn7: [] }));
                 return m;
             }
 
@@ -151,7 +159,11 @@
                             Object.values(newSchedule[d][rc.role]).forEach(arr => arr.forEach(n => assignedToday.add(n)));
 
                             const pickCandidate = () => {
-                                const candidates = rc.staff.filter(n => !assignedToday.has(n));
+                                const candidates = rc.staff
+                                    .filter(staff => staff.active && !staff.shiftRestrictions.includes(shift))
+                                    .filter(staff => !assignedToday.has(staff.name))
+                                    .map(staff => staff.name);
+                                
                                 candidates.sort((a, b) => {
                                     const A = stats.get(a);
                                     const B = stats.get(b);
@@ -186,7 +198,8 @@
                             }
                         }
 
-                        for (const name of rc.staff) {
+                        for (const staff of rc.staff) {
+                            const name = staff.name;
                             const st = roleStats[rc.role].get(name);
                             const todayShift = (() => {
                                 for (const s of SHIFT_ORDER) if (newSchedule[d][rc.role][s].includes(name)) return s;
@@ -212,15 +225,25 @@
             function candidatesForMeal(day, meal) {
                 const rule = mealRules[meal];
                 const set = new Set();
-                for (const e of rule.eligible) 
-                    for (const s of e.shifts) 
-                        schedule[day][e.role][s].forEach(n => set.add(n));
+                for (const e of rule.eligible) {
+                    for (const s of e.shifts) {
+                        schedule[day][e.role][s].forEach(name => {
+                            // スタッフの食事制限をチェック
+                            const staff = roles.find(r => r.role === e.role)?.staff.find(st => st.name === name);
+                            if (staff && staff.active && !staff.mealRestrictions.includes(meal)) {
+                                set.add(name);
+                            }
+                        });
+                    }
+                }
                 return Array.from(set);
             }
 
             function autoAssignKenshoku() {
                 const all = new Set();
-                roles.forEach(rc => rc.staff.forEach(n => all.add(n)));
+                roles.forEach(rc => rc.staff.forEach(staff => {
+                    if (staff.active) all.add(staff.name);
+                }));
                 const count = new Map(Array.from(all).map(n => [n, 0]));
                 const lastDay = new Map();
 
@@ -312,8 +335,8 @@
             function saveLocal() {
                 try {
                     if (!isStorageAvailable()) throw new Error("storage blocked");
-                    const payload = { year, month, roles, schedule, mealRules, kenshoku };
-                    localStorage.setItem("kenshoku_shift", JSON.stringify(payload));
+                    const payload = { year, month, roles, schedule, mealRules, kenshoku, version: "2.0" };
+                    localStorage.setItem("kenshoku_shift_v2", JSON.stringify(payload));
                     alert("ローカルに保存しました。");
                 } catch {
                     alert("この環境ではローカル保存は無効です。");
@@ -323,15 +346,34 @@
             function loadLocal() {
                 try {
                     if (!isStorageAvailable()) throw new Error("storage blocked");
-                    const raw = localStorage.getItem("kenshoku_shift");
+                    const raw = localStorage.getItem("kenshoku_shift_v2") || localStorage.getItem("kenshoku_shift");
                     if (!raw) {
                         alert("保存データが見つかりません。");
                         return;
                     }
                     const p = JSON.parse(raw);
+                    
+                    // 旧バージョンからの移行処理
+                    if (!p.version || p.version !== "2.0") {
+                        const migratedRoles = p.roles.map(role => ({
+                            ...role,
+                            staff: role.staff.map(staffName => ({
+                                id: `${role.role}_${staffName}`,
+                                name: typeof staffName === 'string' ? staffName : staffName.name,
+                                role: role.role,
+                                active: true,
+                                mealRestrictions: [],
+                                shiftRestrictions: [],
+                                notes: ""
+                            }))
+                        }));
+                        setRoles(migratedRoles);
+                    } else {
+                        setRoles(p.roles);
+                    }
+                    
                     setYear(p.year);
                     setMonth(p.month);
-                    setRoles(p.roles);
                     setSchedule(p.schedule);
                     setMealRules(p.mealRules || defaultMealRules);
                     setKenshoku(p.kenshoku || emptyKenshokuForMonth);
@@ -342,8 +384,41 @@
             }
 
             const [tab, setTab] = useState("kenshoku");
+            const [selectedStaff, setSelectedStaff] = useState(null);
             const years = Array.from({ length: 5 }, (_, i) => today.getFullYear() - 1 + i);
             const months = Array.from({ length: 12 }, (_, i) => i + 1);
+
+            // スタッフ管理関数
+            function updateStaff(roleIndex, staffIndex, updates) {
+                const newRoles = [...roles];
+                newRoles[roleIndex].staff[staffIndex] = { ...newRoles[roleIndex].staff[staffIndex], ...updates };
+                setRoles(newRoles);
+            }
+
+            function addStaff(roleIndex) {
+                const newRoles = [...roles];
+                const role = newRoles[roleIndex];
+                const newId = `${role.role}_${Date.now()}`;
+                const newStaff = {
+                    id: newId,
+                    name: `新しい${role.role}スタッフ`,
+                    role: role.role,
+                    active: true,
+                    mealRestrictions: [],
+                    shiftRestrictions: [],
+                    notes: ""
+                };
+                newRoles[roleIndex].staff.push(newStaff);
+                newRoles[roleIndex].count = newRoles[roleIndex].staff.length;
+                setRoles(newRoles);
+            }
+
+            function removeStaff(roleIndex, staffIndex) {
+                const newRoles = [...roles];
+                newRoles[roleIndex].staff.splice(staffIndex, 1);
+                newRoles[roleIndex].count = newRoles[roleIndex].staff.length;
+                setRoles(newRoles);
+            }
 
             return (
                 <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -414,6 +489,7 @@
                             <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
                                 {[
                                     { key: "kenshoku", label: "検食ローテーション" },
+                                    { key: "staff", label: "スタッフ管理" },
                                     { key: "settings", label: "設定" }
                                 ].map(({ key, label }) => (
                                     <button
@@ -460,6 +536,7 @@
                                                                 <div className="text-xs text-slate-400">
                                                                     候補: {candidatesForMeal(day, meal).slice(0, 3).join(", ")}
                                                                     {candidatesForMeal(day, meal).length > 3 && "..."}
+                                                                    {candidatesForMeal(day, meal).length === 0 && "該当者なし"}
                                                                 </div>
                                                             </div>
                                                         ))}
@@ -469,6 +546,129 @@
                                         </div>
                                     ))}
                                 </div>
+                            </div>
+                        )}
+
+                        {/* スタッフ管理タブ */}
+                        {tab === "staff" && (
+                            <div className="space-y-4">
+                                <h2 className="text-xl font-semibold">スタッフ管理</h2>
+                                
+                                {roles.map((role, roleIndex) => (
+                                    <div key={role.role} className="bg-white border border-slate-200 rounded-xl p-6">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-lg font-medium">{role.role}（{role.staff.filter(s => s.active).length}名 / 全{role.count}名）</h3>
+                                            <button
+                                                className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
+                                                onClick={() => addStaff(roleIndex)}
+                                            >
+                                                + スタッフ追加
+                                            </button>
+                                        </div>
+                                        
+                                        <div className="grid gap-3">
+                                            {role.staff.map((staff, staffIndex) => (
+                                                <div key={staff.id} className={`p-4 border rounded-lg ${staff.active ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50'}`}>
+                                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                                        {/* 基本情報 */}
+                                                        <div className="space-y-2">
+                                                            <label className="text-xs text-slate-600">名前</label>
+                                                            <input
+                                                                type="text"
+                                                                className="w-full px-2 py-1 text-sm border border-slate-200 rounded"
+                                                                value={staff.name}
+                                                                onChange={e => updateStaff(roleIndex, staffIndex, { name: e.target.value })}
+                                                            />
+                                                            <div className="flex items-center gap-2">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    id={`active_${staff.id}`}
+                                                                    checked={staff.active}
+                                                                    onChange={e => updateStaff(roleIndex, staffIndex, { active: e.target.checked })}
+                                                                />
+                                                                <label htmlFor={`active_${staff.id}`} className="text-xs text-slate-600">
+                                                                    勤務可能
+                                                                </label>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* 食事制限 */}
+                                                        <div className="space-y-2">
+                                                            <label className="text-xs text-slate-600">検食不可</label>
+                                                            <div className="space-y-1">
+                                                                {MEALS.map(meal => (
+                                                                    <div key={meal} className="flex items-center gap-2">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            id={`meal_${staff.id}_${meal}`}
+                                                                            checked={staff.mealRestrictions.includes(meal)}
+                                                                            onChange={e => {
+                                                                                const restrictions = e.target.checked
+                                                                                    ? [...staff.mealRestrictions, meal]
+                                                                                    : staff.mealRestrictions.filter(m => m !== meal);
+                                                                                updateStaff(roleIndex, staffIndex, { mealRestrictions: restrictions });
+                                                                            }}
+                                                                        />
+                                                                        <label htmlFor={`meal_${staff.id}_${meal}`} className="text-xs">
+                                                                            {meal}
+                                                                        </label>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* シフト制限 */}
+                                                        <div className="space-y-2">
+                                                            <label className="text-xs text-slate-600">シフト不可</label>
+                                                            <div className="space-y-1">
+                                                                {SHIFT_ORDER.map(shift => (
+                                                                    <div key={shift} className="flex items-center gap-2">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            id={`shift_${staff.id}_${shift}`}
+                                                                            checked={staff.shiftRestrictions.includes(shift)}
+                                                                            onChange={e => {
+                                                                                const restrictions = e.target.checked
+                                                                                    ? [...staff.shiftRestrictions, shift]
+                                                                                    : staff.shiftRestrictions.filter(s => s !== shift);
+                                                                                updateStaff(roleIndex, staffIndex, { shiftRestrictions: restrictions });
+                                                                            }}
+                                                                        />
+                                                                        <label htmlFor={`shift_${staff.id}_${shift}`} className="text-xs">
+                                                                            {shift}番
+                                                                        </label>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* 備考・操作 */}
+                                                        <div className="space-y-2">
+                                                            <label className="text-xs text-slate-600">備考</label>
+                                                            <textarea
+                                                                className="w-full px-2 py-1 text-xs border border-slate-200 rounded resize-none"
+                                                                rows="2"
+                                                                value={staff.notes}
+                                                                onChange={e => updateStaff(roleIndex, staffIndex, { notes: e.target.value })}
+                                                                placeholder="特記事項など"
+                                                            />
+                                                            <button
+                                                                className="w-full px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                                                                onClick={() => {
+                                                                    if (confirm(`${staff.name}を削除しますか？`)) {
+                                                                        removeStaff(roleIndex, staffIndex);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                削除
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         )}
 
@@ -507,20 +707,17 @@
                                                 </div>
                                             </div>
 
-                                            {/* スタッフ名簿 */}
+                                            {/* スタッフ概要 */}
                                             <div>
-                                                <div className="text-sm text-slate-600 mb-2">スタッフ名簿:</div>
-                                                <textarea
-                                                    className="w-full h-24 px-3 py-2 text-xs border border-slate-200 rounded resize-none"
-                                                    value={role.staff.join("\n")}
-                                                    onChange={e => {
-                                                        const newRoles = [...roles];
-                                                        newRoles[roleIndex].staff = e.target.value.split("\n").filter(Boolean);
-                                                        newRoles[roleIndex].count = newRoles[roleIndex].staff.length;
-                                                        setRoles(newRoles);
-                                                    }}
-                                                    placeholder="スタッフ名を1行に1名ずつ入力"
-                                                />
+                                                <div className="text-sm text-slate-600 mb-2">スタッフ概要:</div>
+                                                <div className="text-xs text-slate-500 space-y-1">
+                                                    <div>総数: {role.staff.length}名</div>
+                                                    <div>勤務可能: {role.staff.filter(s => s.active).length}名</div>
+                                                    <div>勤務不可: {role.staff.filter(s => !s.active).length}名</div>
+                                                </div>
+                                                <div className="mt-2 text-xs text-slate-400">
+                                                    詳細な管理は「スタッフ管理」タブで行えます
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
