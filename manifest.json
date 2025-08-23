@@ -1,0 +1,16 @@
+{
+  "name": "介護施設向け検食シフト作成システム",
+  "short_name": "検食シフト",
+  "description": "介護施設での検食ローテーションを効率的に管理するWebアプリケーション",
+  "start_url": "/kenshoku-shift/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%234f46e5'/%3E%3Ctext x='50' y='60' text-anchor='middle' fill='white' font-size='40' font-family='sans-serif'%3E🍽️%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}
