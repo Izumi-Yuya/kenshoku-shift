@@ -40,6 +40,27 @@ start index.html # Windows
 - Tailwind CSS (CDN)
 - Babel (CDN)
 - Pure HTML/JavaScript（サーバー不要）
+- モジュール化されたJavaScript構成
+
+## プロジェクト構造
+
+```
+kenshoku-shift/
+├── index.html              # メインアプリケーション
+├── js/
+│   ├── utils.js            # ユーティリティ関数
+│   ├── constants.js        # 定数・初期設定
+│   ├── schedule.js         # スケジュール管理
+│   ├── autoAssign.js       # 自動割当機能
+│   ├── csv.js              # CSV出力機能
+│   ├── storage.js          # データ保存・読込
+│   └── components.js       # Reactコンポーネント
+├── manifest.json           # PWA設定
+├── 404.html               # エラーページ
+├── netlify.toml           # Netlify設定
+├── offline-setup.md       # オフライン版手順
+└── README.md              # プロジェクト説明
+```
 
 ## ライセンス
 

@@ -19,299 +19,108 @@
 <body>
     <div id="root"></div>
 
+    <!-- モジュール読み込み -->
+    <script src="js/utils.js"></script>
+    <script src="js/constants.js"></script>
+    <script src="js/schedule.js"></script>
+    <script src="js/autoAssign.js"></script>
+    <script src="js/csv.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/components.js"></script>
+
     <script type="text/babel">
         const { useState, useMemo, useEffect } = React;
-
-        // Sandbox-safe utilities
-        function isStorageAvailable() {
-            try {
-                const k = "__probe__";
-                localStorage.setItem(k, "1");
-                localStorage.removeItem(k);
-                return true;
-            } catch {
-                return false;
-            }
-        }
-
-        async function safeClipboardWrite(text) {
-            try {
-                if (navigator?.clipboard?.writeText) {
-                    await navigator.clipboard.writeText(text);
-                    return true;
-                }
-            } catch {}
-            try {
-                const ta = document.createElement("textarea");
-                ta.value = text;
-                ta.style.position = "fixed";
-                ta.style.opacity = "0";
-                document.body.appendChild(ta);
-                ta.select();
-                const ok = document.execCommand("copy");
-                document.body.removeChild(ta);
-                return ok;
-            } catch {}
-            return false;
-        }
-
-        function makeDataUrlCSV(text) {
-            const prefix = "data:text/csv;charset=utf-8,\uFEFF";
-            return prefix + encodeURIComponent(text);
-        }
 
         function KenshokuApp() {
             const today = new Date();
             const [year, setYear] = useState(today.getFullYear());
             const [month, setMonth] = useState(today.getMonth() + 1);
+            const [tab, setTab] = useState("shift");
+            const [useCRLF, setUseCRLF] = useState(false);
 
-            const SHIFT_ORDER = ["夜", "早", "日", "遅"];
-            const MEALS = ["朝食", "昼食", "夕食", "夜食"];
+            // データ状態
+            const [roles, setRoles] = useState(Constants.createDefaultConfigs());
+            const [mealRules, setMealRules] = useState(Constants.DEFAULT_MEAL_RULES);
 
-            // 初期スタッフ設定
-            const defaultConfigs = useMemo(() => {
-                const pad = (n) => n.toString().padStart(2, "0");
-                const makeStaff = (label, n) => Array.from({ length: n }, (_, i) => ({
-                    id: `${label}_${pad(i + 1)}`,
-                    name: `${label}${pad(i + 1)}`,
-                    role: label === "介護" ? "介護" : label === "ナース" ? "ナース" : "事務",
-                    active: true,
-                    mealRestrictions: [], // 担当できない食事
-                    shiftRestrictions: [], // 担当できないシフト
-                    notes: ""
-                }));
-                return [
-                    { role: "介護", count: 40, requirements: { 早: 3, 日: 6, 遅: 3, 夜: 2 }, staff: makeStaff("介護", 40) },
-                    { role: "ナース", count: 11, requirements: { 早: 0, 日: 2, 遅: 0, 夜: 1 }, staff: makeStaff("ナース", 11) },
-                    { role: "事務", count: 6, requirements: { 早: 0, 日: 2, 遅: 0, 夜: 0 }, staff: makeStaff("事務", 6) },
-                ];
-            }, []);
+            // カレンダー計算
+            const daysInMonth = useMemo(() => Utils.getDaysInMonth(year, month), [year, month]);
+            const dayNumbers = useMemo(() => Utils.getDayNumbers(daysInMonth), [daysInMonth]);
 
-            const [roles, setRoles] = useState(defaultConfigs);
-
-            // カレンダー日数
-            const daysInMonth = useMemo(() => new Date(year, month, 0).getDate(), [year, month]);
-            const dayNumbers = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth]);
-
-            // スケジュール構造
-            const emptyDay = () => ({ 
-                介護: { 早: [], 日: [], 遅: [], 夜: [] }, 
-                ナース: { 早: [], 日: [], 遅: [], 夜: [] }, 
-                事務: { 早: [], 日: [], 遅: [], 夜: [] } 
-            });
-
-            const emptySchedule = useMemo(() => {
-                const obj = {};
-                for (const d of dayNumbers) obj[d] = emptyDay();
-                return obj;
-            }, [daysInMonth]);
-
+            // スケジュール状態
+            const emptySchedule = useMemo(() => Schedule.createEmptySchedule(dayNumbers), [dayNumbers]);
+            const emptyKenshoku = useMemo(() => Schedule.createEmptyKenshoku(dayNumbers), [dayNumbers]);
             const [schedule, setSchedule] = useState(emptySchedule);
+            const [kenshoku, setKenshoku] = useState(emptyKenshoku);
 
-            // 検食ルール
-            const defaultMealRules = {
-                朝食: { need: 1, eligible: [{ role: "介護", shifts: ["早"] }, { role: "ナース", shifts: ["早", "日"] }] },
-                昼食: { need: 1, eligible: [{ role: "介護", shifts: ["日"] }, { role: "ナース", shifts: ["日"] }] },
-                夕食: { need: 1, eligible: [{ role: "介護", shifts: ["遅"] }, { role: "ナース", shifts: ["日", "遅"] }] },
-                夜食: { need: 1, eligible: [{ role: "ナース", shifts: ["夜"] }] },
+            // UI状態
+            const [dl, setDl] = useState({ visible: false, kind: null, filename: "", text: "", dataUrl: "" });
+
+            // 月が変わったときにスケジュールをリセット
+            useEffect(() => {
+                setSchedule(Schedule.createEmptySchedule(dayNumbers));
+                setKenshoku(Schedule.createEmptyKenshoku(dayNumbers));
+            }, [dayNumbers]);
+
+            // イベントハンドラー
+            const handleAutoAssign = () => {
+                const newSchedule = AutoAssign.autoAssignShifts(roles, dayNumbers);
+                setSchedule(newSchedule);
             };
 
-            const [mealRules, setMealRules] = useState(defaultMealRules);
+            const handleAutoAssignKenshoku = () => {
+                const newKenshoku = AutoAssign.autoAssignKenshoku(roles, schedule, mealRules, dayNumbers);
+                setKenshoku(newKenshoku);
+            };
 
-            const emptyKenshokuForMonth = useMemo(() => {
-                const obj = {};
-                for (const d of dayNumbers) obj[d] = { 朝食: [], 昼食: [], 夕食: [], 夜食: [] };
-                return obj;
-            }, [daysInMonth]);
+            const handleSave = () => {
+                const result = Storage.saveToLocal({ year, month, roles, schedule, mealRules, kenshoku });
+                alert(result.message);
+            };
 
-            const [kenshoku, setKenshoku] = useState(emptyKenshokuForMonth);
-
-            // 自動割当関数
-            function makeInitialStats(staffList) {
-                const m = new Map();
-                staffList.forEach(staff => m.set(staff.name, { total: 0, consecDays: 0, lastShift: null, nightsIn7: [] }));
-                return m;
-            }
-
-            function buildRoleStats() {
-                return roles.reduce((acc, rc) => {
-                    acc[rc.role] = makeInitialStats(rc.staff);
-                    return acc;
-                }, {});
-            }
-
-            function autoAssign() {
-                const newSchedule = {};
-                for (const d of dayNumbers) newSchedule[d] = emptyDay();
-
-                const roleStats = buildRoleStats();
-
-                for (const d of dayNumbers) {
-                    for (const rc of roles) {
-                        const req = rc.requirements;
-                        const stats = roleStats[rc.role];
-
-                        for (const shift of SHIFT_ORDER) {
-                            const need = req[shift];
-                            if (need <= 0) continue;
-
-                            const assignedToday = new Set();
-                            Object.values(newSchedule[d][rc.role]).forEach(arr => arr.forEach(n => assignedToday.add(n)));
-
-                            const pickCandidate = () => {
-                                const candidates = rc.staff
-                                    .filter(staff => staff.active && !staff.shiftRestrictions.includes(shift))
-                                    .filter(staff => !assignedToday.has(staff.name))
-                                    .map(staff => staff.name);
-                                
-                                candidates.sort((a, b) => {
-                                    const A = stats.get(a);
-                                    const B = stats.get(b);
-                                    const pen = (st) => {
-                                        let p = 0;
-                                        p += st.total * 2;
-                                        p += st.consecDays;
-                                        if (st.lastShift === "夜" && shift === "早") p += 100;
-                                        if (shift === "夜") {
-                                            const recent = st.nightsIn7.reduce((s, x) => s + x, 0);
-                                            p += recent * 10;
-                                        }
-                                        return p;
-                                    };
-                                    return pen(A) - pen(B);
-                                });
-
-                                for (const c of candidates) {
-                                    const st = stats.get(c);
-                                    if (st.consecDays >= 5) continue;
-                                    if (st.lastShift === "夜" && shift === "早") continue;
-                                    return c;
-                                }
-                                return candidates[0] ?? null;
-                            };
-
-                            for (let i = 0; i < need; i++) {
-                                const picked = pickCandidate();
-                                if (!picked) break;
-                                newSchedule[d][rc.role][shift].push(picked);
-                                assignedToday.add(picked);
-                            }
-                        }
-
-                        for (const staff of rc.staff) {
-                            const name = staff.name;
-                            const st = roleStats[rc.role].get(name);
-                            const todayShift = (() => {
-                                for (const s of SHIFT_ORDER) if (newSchedule[d][rc.role][s].includes(name)) return s;
-                                return "休";
-                            })();
-
-                            if (todayShift === "休") st.consecDays = 0;
-                            else {
-                                st.total += 1;
-                                st.consecDays += 1;
-                            }
-
-                            st.nightsIn7.push(todayShift === "夜" ? 1 : 0);
-                            if (st.nightsIn7.length > 7) st.nightsIn7.shift();
-                            st.lastShift = todayShift;
-                        }
-                    }
+            const handleLoad = () => {
+                const result = Storage.loadFromLocal();
+                if (result.success) {
+                    const data = result.data;
+                    setYear(data.year);
+                    setMonth(data.month);
+                    setRoles(data.roles);
+                    setSchedule(data.schedule);
+                    setMealRules(data.mealRules || Constants.DEFAULT_MEAL_RULES);
+                    setKenshoku(data.kenshoku || Schedule.createEmptyKenshoku(dayNumbers));
                 }
+                alert(result.message);
+            };
 
-                setSchedule(newSchedule);
-            }
+            const handleOpenCSV = () => {
+                setDl({ ...dl, visible: true, kind: 'menu' });
+            };
 
-            function candidatesForMeal(day, meal) {
-                const rule = mealRules[meal];
-                const set = new Set();
-                for (const e of rule.eligible) {
-                    for (const s of e.shifts) {
-                        schedule[day][e.role][s].forEach(name => {
-                            // スタッフの食事制限をチェック
-                            const staff = roles.find(r => r.role === e.role)?.staff.find(st => st.name === name);
-                            if (staff && staff.active && !staff.mealRestrictions.includes(meal)) {
-                                set.add(name);
-                            }
-                        });
-                    }
+            const handleSelectCSVType = (kind) => {
+                if (kind === 'menu') {
+                    setDl({ ...dl, kind: 'menu' });
+                    return;
                 }
-                return Array.from(set);
-            }
+                const csvData = CSV.generateCSVData(kind, year, month, dayNumbers, schedule, kenshoku, roles, mealRules, useCRLF);
+                setDl({ visible: true, kind, ...csvData });
+            };
 
-            function autoAssignKenshoku() {
-                const all = new Set();
-                roles.forEach(rc => rc.staff.forEach(staff => {
-                    if (staff.active) all.add(staff.name);
-                }));
-                const count = new Map(Array.from(all).map(n => [n, 0]));
-                const lastDay = new Map();
+            const handleCopyToClipboard = async () => {
+                const success = await Utils.safeClipboardWrite(dl.text);
+                alert(success ? "クリップボードにコピーしました" : "コピーに失敗しました");
+            };
 
-                const result = {};
-                for (const d of dayNumbers) {
-                    const dayUsed = new Set();
-                    const dayObj = { 朝食: [], 昼食: [], 夕食: [], 夜食: [] };
+            // 手動シフト設定
+            const handleManualShift = (day, role, shift, slotIndex, name) => {
+                setSchedule(prev => {
+                    const copy = { ...prev };
+                    const arr = [...copy[day][role][shift]];
+                    arr[slotIndex] = name;
+                    copy[day] = { ...copy[day], [role]: { ...copy[day][role], [shift]: arr } };
+                    return copy;
+                });
+            };
 
-                    for (const meal of MEALS) {
-                        const need = mealRules[meal].need;
-                        const cands = candidatesForMeal(d, meal);
-                        cands.sort((a, b) => (count.get(a) - count.get(b)) || a.localeCompare(b));
-
-                        let filled = 0;
-                        for (const c of cands) {
-                            if (filled >= need) break;
-                            if (dayUsed.has(c)) continue;
-                            const last = lastDay.get(c) ?? -999;
-                            if (d - last < 2) continue;
-
-                            dayObj[meal].push(c);
-                            dayUsed.add(c);
-                            count.set(c, (count.get(c) ?? 0) + 1);
-                            lastDay.set(c, d);
-                            filled++;
-                        }
-
-                        if (filled < need) {
-                            for (const c of cands) {
-                                if (filled >= need) break;
-                                if (dayObj[meal].includes(c)) continue;
-                                dayObj[meal].push(c);
-                                count.set(c, (count.get(c) ?? 0) + 1);
-                                lastDay.set(c, d);
-                                filled++;
-                            }
-                        }
-                    }
-                    result[d] = dayObj;
-                }
-
-                setKenshoku(result);
-            }
-
-            // CSV生成
-            const [useCRLF, setUseCRLF] = useState(false);
-            const NL = useCRLF ? "\r\n" : "\n";
-
-            function buildCSV_Kenshoku() {
-                const rows = ["date,meal,slot,name"];
-                for (const d of dayNumbers) {
-                    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-                    for (const meal of MEALS) {
-                        const slots = getKenshokuSlots(d, meal);
-                        slots.forEach((nm, i) => rows.push(`${dateStr},${meal},${i + 1},${nm ?? ""}`));
-                    }
-                }
-                return rows.join(NL);
-            }
-
-            // ヘルパー関数
-            function getKenshokuSlots(day, meal) {
-                const need = mealRules[meal].need;
-                const assigned = kenshoku[day][meal] || [];
-                return Array.from({ length: need }, (_, i) => assigned[i] ?? null);
-            }
-
-            function handleManualKenshoku(day, meal, slotIndex, name) {
+            const handleManualKenshoku = (day, meal, slotIndex, name) => {
                 setKenshoku(prev => {
                     const copy = { ...prev };
                     const arr = [...copy[day][meal]];
@@ -319,83 +128,30 @@
                     copy[day] = { ...copy[day], [meal]: arr };
                     return copy;
                 });
-            }
+            };
 
-            // ダウンロード機能
-            const [dl, setDl] = useState({ visible: false, kind: null, filename: "", text: "", dataUrl: "" });
+            const clearShift = (day, role, shift) => {
+                setSchedule(prev => {
+                    const copy = { ...prev };
+                    copy[day] = { ...copy[day], [role]: { ...copy[day][role], [shift]: [] } };
+                    return copy;
+                });
+            };
 
-            function openDownloadCenter() {
-                const text = buildCSV_Kenshoku();
-                const filename = `kenshoku_${year}${String(month).padStart(2, "0")}.csv`;
-                const dataUrl = makeDataUrlCSV(text);
-                setDl({ visible: true, kind: "kenshoku", filename, text, dataUrl });
-            }
-
-            // 保存/読込
-            function saveLocal() {
-                try {
-                    if (!isStorageAvailable()) throw new Error("storage blocked");
-                    const payload = { year, month, roles, schedule, mealRules, kenshoku, version: "2.0" };
-                    localStorage.setItem("kenshoku_shift_v2", JSON.stringify(payload));
-                    alert("ローカルに保存しました。");
-                } catch {
-                    alert("この環境ではローカル保存は無効です。");
+            const clearAllShifts = () => {
+                if (confirm('すべてのシフトをクリアしますか？この操作は元に戻せません。')) {
+                    setSchedule(Schedule.createEmptySchedule(dayNumbers));
                 }
-            }
+            };
 
-            function loadLocal() {
-                try {
-                    if (!isStorageAvailable()) throw new Error("storage blocked");
-                    const raw = localStorage.getItem("kenshoku_shift_v2") || localStorage.getItem("kenshoku_shift");
-                    if (!raw) {
-                        alert("保存データが見つかりません。");
-                        return;
-                    }
-                    const p = JSON.parse(raw);
-                    
-                    // 旧バージョンからの移行処理
-                    if (!p.version || p.version !== "2.0") {
-                        const migratedRoles = p.roles.map(role => ({
-                            ...role,
-                            staff: role.staff.map(staffName => ({
-                                id: `${role.role}_${staffName}`,
-                                name: typeof staffName === 'string' ? staffName : staffName.name,
-                                role: role.role,
-                                active: true,
-                                mealRestrictions: [],
-                                shiftRestrictions: [],
-                                notes: ""
-                            }))
-                        }));
-                        setRoles(migratedRoles);
-                    } else {
-                        setRoles(p.roles);
-                    }
-                    
-                    setYear(p.year);
-                    setMonth(p.month);
-                    setSchedule(p.schedule);
-                    setMealRules(p.mealRules || defaultMealRules);
-                    setKenshoku(p.kenshoku || emptyKenshokuForMonth);
-                    alert("保存データを読み込みました。");
-                } catch {
-                    alert("この環境では読込は無効か、データが壊れています。");
-                }
-            }
-
-            const [tab, setTab] = useState("kenshoku");
-            const [selectedStaff, setSelectedStaff] = useState(null);
-            const years = Array.from({ length: 5 }, (_, i) => today.getFullYear() - 1 + i);
-            const months = Array.from({ length: 12 }, (_, i) => i + 1);
-
-            // スタッフ管理関数
-            function updateStaff(roleIndex, staffIndex, updates) {
+            // スタッフ管理
+            const updateStaff = (roleIndex, staffIndex, updates) => {
                 const newRoles = [...roles];
                 newRoles[roleIndex].staff[staffIndex] = { ...newRoles[roleIndex].staff[staffIndex], ...updates };
                 setRoles(newRoles);
-            }
+            };
 
-            function addStaff(roleIndex) {
+            const addStaff = (roleIndex) => {
                 const newRoles = [...roles];
                 const role = newRoles[roleIndex];
                 const newId = `${role.role}_${Date.now()}`;
@@ -411,101 +167,103 @@
                 newRoles[roleIndex].staff.push(newStaff);
                 newRoles[roleIndex].count = newRoles[roleIndex].staff.length;
                 setRoles(newRoles);
-            }
+            };
 
-            function removeStaff(roleIndex, staffIndex) {
+            const removeStaff = (roleIndex, staffIndex) => {
                 const newRoles = [...roles];
                 newRoles[roleIndex].staff.splice(staffIndex, 1);
                 newRoles[roleIndex].count = newRoles[roleIndex].staff.length;
                 setRoles(newRoles);
-            }
+            };
 
             return (
                 <div className="min-h-screen bg-slate-50 text-slate-900">
-                    <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200">
-                        <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div>
-                                <h1 className="text-lg font-semibold">介護施設向け 検食シフト作成システム</h1>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <button 
-                                    className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200" 
-                                    onClick={openDownloadCenter}
-                                >
-                                    CSV出力
-                                </button>
-                                <button 
-                                    className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200" 
-                                    onClick={saveLocal}
-                                >
-                                    保存
-                                </button>
-                                <button 
-                                    className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200" 
-                                    onClick={loadLocal}
-                                >
-                                    読込
-                                </button>
-                                <button 
-                                    className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700" 
-                                    onClick={autoAssign}
-                                >
-                                    勤務シフト自動割当
-                                </button>
-                                <button 
-                                    className="px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700" 
-                                    onClick={autoAssignKenshoku}
-                                >
-                                    検食ローテーション自動割当
-                                </button>
-                            </div>
-                        </div>
-                    </header>
+                    <Components.Header
+                        onAutoAssign={handleAutoAssign}
+                        onAutoAssignKenshoku={handleAutoAssignKenshoku}
+                        onSave={handleSave}
+                        onLoad={handleLoad}
+                        onOpenCSV={handleOpenCSV}
+                    />
 
                     <main className="mx-auto max-w-7xl px-4 py-6">
-                        {/* コントロールバー */}
-                        <div className="flex flex-wrap items-center gap-3 mb-4">
-                            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
-                                <label className="text-sm text-slate-600">年</label>
-                                <select 
-                                    className="outline-none bg-transparent" 
-                                    value={year} 
-                                    onChange={e => setYear(Number(e.target.value))}
-                                >
-                                    {years.map(y => <option key={y} value={y}>{y}</option>)}
-                                </select>
-                            </div>
-                            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
-                                <label className="text-sm text-slate-600">月</label>
-                                <select 
-                                    className="outline-none bg-transparent" 
-                                    value={month} 
-                                    onChange={e => setMonth(Number(e.target.value))}
-                                >
-                                    {months.map(m => <option key={m} value={m}>{m}</option>)}
-                                </select>
-                            </div>
-                            <div className="flex bg-white border border-slate-200 rounded-xl overflow-hidden">
-                                {[
-                                    { key: "kenshoku", label: "検食ローテーション" },
-                                    { key: "staff", label: "スタッフ管理" },
-                                    { key: "settings", label: "設定" }
-                                ].map(({ key, label }) => (
-                                    <button
-                                        key={key}
-                                        className={`px-4 py-2 text-sm transition-colors ${
-                                            tab === key 
-                                                ? "bg-indigo-600 text-white" 
-                                                : "text-slate-600 hover:bg-slate-50"
-                                        }`}
-                                        onClick={() => setTab(key)}
+                        <Components.TabNavigation
+                            activeTab={tab}
+                            onTabChange={setTab}
+                            year={year}
+                            month={month}
+                            onYearChange={setYear}
+                            onMonthChange={setMonth}
+                        />
+
+                        {/* 勤務シフトタブ */}
+                        {tab === "shift" && (
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h2 className="text-xl font-semibold">勤務シフト - {year}年{month}月</h2>
+                                    <button 
+                                        className="px-3 py-1.5 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 text-sm"
+                                        onClick={clearAllShifts}
                                     >
-                                        {label}
+                                        全シフトクリア
                                     </button>
-                                ))}
+                                </div>
+                                <div className="grid gap-4">
+                                    {dayNumbers.map(day => (
+                                        <div key={day} className="bg-white border border-slate-200 rounded-xl p-4">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h3 className="font-medium">{month}/{day}</h3>
+                                                <span className="text-xs text-slate-500">
+                                                    {Utils.getWeekday(year, month, day)}
+                                                </span>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-4">
+                                                {Constants.ROLES.map(role => (
+                                                    <div key={role} className="space-y-3">
+                                                        <h4 className="text-sm font-medium text-slate-700 border-b border-slate-100 pb-1">{role}</h4>
+                                                        {Constants.SHIFT_ORDER.map(shift => {
+                                                            const slots = Schedule.getSlots(schedule, roles, day, role, shift);
+                                                            const availableStaff = Schedule.getAvailableStaff(roles, role, shift);
+                                                            if (slots.length === 0) return null;
+                                                            return (
+                                                                <div key={shift} className="space-y-2">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <div className="text-xs font-medium text-slate-600">{shift}番 ({slots.length}名)</div>
+                                                                        <button
+                                                                            className="text-xs text-red-600 hover:text-red-800"
+                                                                            onClick={() => clearShift(day, role, shift)}
+                                                                            title="このシフトをクリア"
+                                                                        >
+                                                                            クリア
+                                                                        </button>
+                                                                    </div>
+                                                                    {slots.map((name, i) => (
+                                                                        <div key={i} className="space-y-1">
+                                                                            <select
+                                                                                className="w-full px-2 py-1 text-xs border border-slate-200 rounded"
+                                                                                value={name || ""}
+                                                                                onChange={e => handleManualShift(day, role, shift, i, e.target.value)}
+                                                                            >
+                                                                                <option value="">未割当</option>
+                                                                                {availableStaff.map(staffName => (
+                                                                                    <option key={staffName} value={staffName}>
+                                                                                        {staffName}
+                                                                                    </option>
+                                                                                ))}
+                                                                            </select>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         {/* 検食ローテーションタブ */}
                         {tab === "kenshoku" && (
@@ -517,14 +275,14 @@
                                             <div className="flex items-center justify-between mb-3">
                                                 <h3 className="font-medium">{month}/{day}</h3>
                                                 <span className="text-xs text-slate-500">
-                                                    {new Date(year, month - 1, day).toLocaleDateString('ja-JP', { weekday: 'short' })}
+                                                    {Utils.getWeekday(year, month, day)}
                                                 </span>
                                             </div>
                                             <div className="grid grid-cols-4 gap-4">
-                                                {MEALS.map(meal => (
+                                                {Constants.MEALS.map(meal => (
                                                     <div key={meal} className="space-y-2">
                                                         <h4 className="text-sm font-medium text-slate-700">{meal}</h4>
-                                                        {getKenshokuSlots(day, meal).map((name, i) => (
+                                                        {Schedule.getKenshokuSlots(kenshoku, mealRules, day, meal).map((name, i) => (
                                                             <div key={i} className="space-y-1">
                                                                 <input
                                                                     type="text"
@@ -534,9 +292,9 @@
                                                                     placeholder={`${meal}担当`}
                                                                 />
                                                                 <div className="text-xs text-slate-400">
-                                                                    候補: {candidatesForMeal(day, meal).slice(0, 3).join(", ")}
-                                                                    {candidatesForMeal(day, meal).length > 3 && "..."}
-                                                                    {candidatesForMeal(day, meal).length === 0 && "該当者なし"}
+                                                                    候補: {Schedule.getCandidatesForMeal(schedule, roles, mealRules, day, meal).slice(0, 3).join(", ")}
+                                                                    {Schedule.getCandidatesForMeal(schedule, roles, mealRules, day, meal).length > 3 && "..."}
+                                                                    {Schedule.getCandidatesForMeal(schedule, roles, mealRules, day, meal).length === 0 && "該当者なし"}
                                                                 </div>
                                                             </div>
                                                         ))}
@@ -596,7 +354,7 @@
                                                         <div className="space-y-2">
                                                             <label className="text-xs text-slate-600">検食不可</label>
                                                             <div className="space-y-1">
-                                                                {MEALS.map(meal => (
+                                                                {Constants.MEALS.map(meal => (
                                                                     <div key={meal} className="flex items-center gap-2">
                                                                         <input
                                                                             type="checkbox"
@@ -621,7 +379,7 @@
                                                         <div className="space-y-2">
                                                             <label className="text-xs text-slate-600">シフト不可</label>
                                                             <div className="space-y-1">
-                                                                {SHIFT_ORDER.map(shift => (
+                                                                {Constants.SHIFT_ORDER.map(shift => (
                                                                     <div key={shift} className="flex items-center gap-2">
                                                                         <input
                                                                             type="checkbox"
@@ -688,7 +446,7 @@
                                             <div className="mb-3">
                                                 <div className="text-sm text-slate-600 mb-2">シフト別必要人数:</div>
                                                 <div className="grid grid-cols-4 gap-2">
-                                                    {SHIFT_ORDER.map(shift => (
+                                                    {Constants.SHIFT_ORDER.map(shift => (
                                                         <div key={shift} className="flex items-center gap-2">
                                                             <span className="text-xs">{shift}:</span>
                                                             <input
@@ -726,7 +484,7 @@
                                 {/* 検食ルール設定 */}
                                 <div className="bg-white border border-slate-200 rounded-xl p-6">
                                     <h3 className="text-lg font-medium mb-4">検食ルール設定</h3>
-                                    {MEALS.map(meal => (
+                                    {Constants.MEALS.map(meal => (
                                         <div key={meal} className="mb-4 p-4 border border-slate-100 rounded-lg">
                                             <div className="flex items-center gap-4 mb-3">
                                                 <h4 className="font-medium">{meal}</h4>
@@ -753,61 +511,31 @@
                                         </div>
                                     ))}
                                 </div>
-                            </div>
-                        )}
 
-                        {/* ダウンロードセンター */}
-                        {dl.visible && (
-                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                                <div className="bg-white rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h3 className="text-lg font-semibold">CSV出力</h3>
-                                        <button
-                                            className="text-slate-400 hover:text-slate-600"
-                                            onClick={() => setDl({ ...dl, visible: false })}
-                                        >
-                                            ✕
-                                        </button>
-                                    </div>
-                                    
-                                    <div className="space-y-4">
-                                        <div>
-                                            <div className="text-sm text-slate-600 mb-2">ファイル名: {dl.filename}</div>
-                                            <div className="text-sm text-slate-600 mb-2">サイズ: {dl.text.length} 文字</div>
-                                        </div>
-
-                                        {/* ダウンロードオプション */}
-                                        <div className="flex flex-wrap gap-2">
-                                            <a
-                                                href={dl.dataUrl}
-                                                download={dl.filename}
-                                                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                                            >
-                                                📥 ダウンロード
-                                            </a>
-                                            <button
-                                                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg"
-                                                onClick={async () => {
-                                                    const success = await safeClipboardWrite(dl.text);
-                                                    alert(success ? "クリップボードにコピーしました" : "コピーに失敗しました");
-                                                }}
-                                            >
-                                                📋 クリップボードにコピー
-                                            </button>
-                                        </div>
-
-                                        {/* プレビュー */}
-                                        <div>
-                                            <div className="text-sm text-slate-600 mb-2">プレビュー:</div>
-                                            <pre className="bg-slate-50 p-3 rounded-lg text-xs overflow-x-auto max-h-60 overflow-y-auto">
-                                                {dl.text.slice(0, 2000)}
-                                                {dl.text.length > 2000 && "\n... (省略)"}
-                                            </pre>
-                                        </div>
+                                {/* CSV設定 */}
+                                <div className="bg-white border border-slate-200 rounded-xl p-6">
+                                    <h3 className="text-lg font-medium mb-4">CSV出力設定</h3>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            id="useCRLF"
+                                            checked={useCRLF}
+                                            onChange={e => setUseCRLF(e.target.checked)}
+                                        />
+                                        <label htmlFor="useCRLF" className="text-sm text-slate-600">
+                                            Windows Excel用改行コード（CRLF）を使用
+                                        </label>
                                     </div>
                                 </div>
                             </div>
                         )}
+
+                        <Components.DownloadCenter
+                            dl={dl}
+                            onClose={() => setDl({ ...dl, visible: false })}
+                            onSelectType={handleSelectCSVType}
+                            onCopyToClipboard={handleCopyToClipboard}
+                        />
                     </main>
                 </div>
             );
