@@ -1,9 +1,9 @@
 // React コンポーネント群
 
 // ヘッダーコンポーネント
-function Header({ onAutoAssign, onAutoAssignKenshoku, onSave, onLoad, onOpenCSV }) {
+function Header({ onAutoAssign, onAutoAssignKenshoku, onOpenCSV, onSaveSettingsCSV, onLoadSettingsCSV, onSaveAllDataCSV, onLoadAllDataCSV }) {
     return React.createElement('header', {
-        className: "sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200"
+        className: "sticky top-0 z-10 glass-effect-strong"
     },
         React.createElement('div', {
             className: "mx-auto max-w-7xl px-4 py-3 flex items-center justify-between"
@@ -12,35 +12,56 @@ function Header({ onAutoAssign, onAutoAssignKenshoku, onSave, onLoad, onOpenCSV 
                 className: "flex items-center gap-3"
             },
                 React.createElement('div', {
-                    className: "w-2.5 h-2.5 rounded-full bg-indigo-600"
+                    className: "w-3 h-3 rounded-full bg-gradient-to-r from-primary-500 to-primary-600 shadow-sm"
                 }),
                 React.createElement('h1', {
-                    className: "text-lg font-semibold"
+                    className: "text-lg font-semibold text-white"
                 }, "介護施設向け 検食シフト作成システム")
             ),
             React.createElement('div', {
                 className: "flex flex-wrap items-center gap-2"
             },
+                // CSV出力メニュー
                 React.createElement('button', {
-                    className: "px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200",
+                    className: "btn btn-secondary text-xs",
                     onClick: onOpenCSV
-                }, "CSV出力 ▼"),
+                }, "📊 CSV出力"),
+
+                // CSV保存・読み込みグループ
+                React.createElement('div', {
+                    className: "flex items-center gap-1 bg-white/10 rounded-lg p-1"
+                },
+                    React.createElement('button', {
+                        className: "px-2 py-1 text-xs rounded bg-green-500/80 text-white hover:bg-green-500 transition-smooth",
+                        onClick: onSaveSettingsCSV,
+                        title: "設定データをCSVファイルで保存"
+                    }, "📤 設定保存"),
+                    React.createElement('button', {
+                        className: "px-2 py-1 text-xs rounded bg-blue-500/80 text-white hover:bg-blue-500 transition-smooth",
+                        onClick: onLoadSettingsCSV,
+                        title: "CSVファイルから設定データを読み込み"
+                    }, "📤 設定存読込"),
+                    React.createElement('button', {
+                        className: "px-2 py-1 text-xs rounded bg-purple-500/80 text-white hover:bg-purple-500 transition-smooth",
+                        onClick: onSaveAllDataCSV,
+                        title: "全データ（設定+シフト+検食）をCSVファイルで保存"
+                    }, "📤 全保存"),
+                    React.createElement('button', {
+                        className: "px-2 py-1 text-xs rounded bg-orange-500/80 text-white hover:bg-orange-500 transition-smooth",
+                        onClick: onLoadAllDataCSV,
+                        title: "CSVファイルから全データを読み込み"
+                    }, "📤 全読込)")
+                ),
+
+                // 自動割当ボタン
                 React.createElement('button', {
-                    className: "px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200",
-                    onClick: onSave
-                }, "保存"),
-                React.createElement('button', {
-                    className: "px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200",
-                    onClick: onLoad
-                }, "読込"),
-                React.createElement('button', {
-                    className: "px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700",
+                    className: "btn btn-primary text-xs",
                     onClick: onAutoAssign
-                }, "勤務シフト自動割当"),
+                }, "✨ 勤務シフト自動割当"),
                 React.createElement('button', {
-                    className: "px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700",
+                    className: "px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 text-xs transition-smooth",
                     onClick: onAutoAssignKenshoku
-                }, "検食ローテーション自動割当")
+                }, "🍽️ 検食ローテーション自動割当")
             )
         )
     );
@@ -169,6 +190,28 @@ function DownloadCenter({ dl, onClose, onSelectType, onCopyToClipboard }) {
                             React.createElement('div', {
                                 className: "text-sm text-slate-600"
                             }, "名前・日付・役職・シフトの形式")
+                        ),
+                        React.createElement('button', {
+                            className: "p-4 border border-slate-200 rounded-lg hover:bg-slate-50 text-left",
+                            onClick: () => onSelectType('settings')
+                        },
+                            React.createElement('div', {
+                                className: "font-medium"
+                            }, "設定データ"),
+                            React.createElement('div', {
+                                className: "text-sm text-slate-600"
+                            }, "スタッフ情報・シフト要件・検食設定の形式")
+                        ),
+                        React.createElement('button', {
+                            className: "p-4 border border-slate-200 rounded-lg hover:bg-slate-50 text-left",
+                            onClick: () => onSelectType('complete')
+                        },
+                            React.createElement('div', {
+                                className: "font-medium"
+                            }, "完全データ"),
+                            React.createElement('div', {
+                                className: "text-sm text-slate-600"
+                            }, "設定+シフト+検食データの統合形式")
                         )
                     )
                 ) :
@@ -217,14 +260,14 @@ function DownloadCenter({ dl, onClose, onSelectType, onCopyToClipboard }) {
 }
 
 // 検索可能なセレクトコンポーネント
-function SearchableSelect({ 
-    value, 
-    onChange, 
-    options, 
-    placeholder = "選択してください", 
+function SearchableSelect({
+    value,
+    onChange,
+    options,
+    placeholder = "選択してください",
     emptyText = "未割当",
     className = "",
-    disabled = false 
+    disabled = false
 }) {
     const [isOpen, setIsOpen] = React.useState(false);
     const [searchTerm, setSearchTerm] = React.useState('');
@@ -235,7 +278,7 @@ function SearchableSelect({
     // 検索でフィルタリングされたオプション
     const filteredOptions = React.useMemo(() => {
         if (!searchTerm) return options;
-        return options.filter(option => 
+        return options.filter(option =>
             option.toLowerCase().includes(searchTerm.toLowerCase())
         );
     }, [options, searchTerm]);
@@ -286,7 +329,7 @@ function SearchableSelect({
                     setIsOpen(true);
                     setTimeout(() => inputRef.current?.focus(), 0);
                 } else {
-                    setHighlightedIndex(prev => 
+                    setHighlightedIndex(prev =>
                         prev < filteredOptions.length - 1 ? prev + 1 : prev
                     );
                 }
@@ -311,7 +354,7 @@ function SearchableSelect({
         const newValue = event.target.value;
         setSearchTerm(newValue);
         setHighlightedIndex(-1);
-        
+
         // 直接入力での選択も可能にする
         if (options.includes(newValue)) {
             onChange(newValue);
@@ -329,7 +372,7 @@ function SearchableSelect({
 
     const handleToggle = () => {
         if (disabled) return;
-        
+
         if (!isOpen) {
             setIsOpen(true);
             setTimeout(() => inputRef.current?.focus(), 0);
@@ -368,7 +411,7 @@ function SearchableSelect({
                 className: "flex items-center justify-between"
             },
                 // 表示値または検索入力
-                isOpen ? 
+                isOpen ?
                     React.createElement('input', {
                         ref: inputRef,
                         type: 'text',
@@ -382,7 +425,7 @@ function SearchableSelect({
                     React.createElement('span', {
                         className: `flex-1 ${!value ? 'text-slate-400' : 'text-slate-900'}`
                     }, displayValue),
-                
+
                 // アクションボタン
                 React.createElement('div', {
                     className: "flex items-center gap-1"
@@ -394,7 +437,7 @@ function SearchableSelect({
                         className: "p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors",
                         'aria-label': 'クリア'
                     }, '✕'),
-                    
+
                     // ドロップダウン矢印
                     React.createElement('div', {
                         className: `transition-transform ${isOpen ? 'rotate-180' : ''}`
@@ -421,8 +464,8 @@ function SearchableSelect({
             }, `👤 ${emptyText}`),
 
             // フィルタリングされたオプション
-            filteredOptions.length > 0 ? 
-                filteredOptions.map((option, index) => 
+            filteredOptions.length > 0 ?
+                filteredOptions.map((option, index) =>
                     React.createElement('div', {
                         key: option,
                         className: `

@@ -605,22 +605,98 @@
                 setKenshoku(newKenshoku);
             };
 
-            const handleSave = () => {
-                const result = Storage.saveToLocal({ year, month, roles, schedule, mealRules, kenshoku });
-                alert(result.message);
+            // 設定データCSV保存・読み込み
+            const handleSaveSettingsCSV = () => {
+                const result = Storage.saveSettingsToCSV({ year, month, roles, schedule, mealRules, kenshoku }, useCRLF);
+                alert(result.success ? '✅ ' + result.message : '❌ ' + result.message);
+            };
+            
+            const handleLoadSettingsCSV = () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.csv';
+                input.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    try {
+                        const result = await Storage.loadSettingsFromCSV(file);
+                        if (result.success) {
+                            const data = result.data;
+                            console.log('設定CSV読み込み成功:', data);
+                            // 設定データを更新
+                            setRoles(data.roles || []);
+                            // mealRulesをデフォルト値とマージして設定
+                            const mergedMealRules = {
+                                ...Constants.DEFAULT_MEAL_RULES,
+                                ...(data.mealRules || {})
+                            };
+                            console.log('mealRules設定:', mergedMealRules);
+                            setMealRules(mergedMealRules);
+                            // シフトデータはクリア（設定のみ読み込み）
+                            const newSchedule = Schedule.createEmptySchedule(dayNumbers);
+                            const newKenshoku = Schedule.createEmptyKenshoku(dayNumbers);
+                            setSchedule(newSchedule);
+                            setKenshoku(newKenshoku);
+                            alert('✅ ' + result.message + '\n\n既存のシフトデータはクリアされました。');
+                        } else {
+                            alert('❌ ' + result.message);
+                        }
+                    } catch (error) {
+                        console.error('設定CSV読み込み処理エラー:', error);
+                        alert('❌ 設定CSV読み込み中にエラーが発生しました: ' + error.message);
+                    }
+                };
+                input.click();
+            };
+            
+            // 全データCSV保存・読み込み
+            const handleSaveAllDataCSV = () => {
+                const result = Storage.saveAllDataToCSV({ year, month, roles, schedule, mealRules, kenshoku }, useCRLF);
+                alert(result.success ? '✅ ' + result.message : '❌ ' + result.message);
+            };
+            
+            const handleLoadAllDataCSV = () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.csv';
+                input.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    try {
+                        const result = await Storage.loadAllDataFromCSV(file);
+                        if (result.success) {
+                            const data = result.data;
+                            console.log('全データCSV読み込み成功:', data);
+                            // 全データを更新
+                            if (data.year !== undefined) setYear(data.year);
+                            if (data.month !== undefined) setMonth(data.month);
+                            if (data.roles) setRoles(data.roles);
+                            if (data.schedule) setSchedule(data.schedule);
+                            if (data.mealRules) {
+                                const mergedMealRules = {
+                                    ...Constants.DEFAULT_MEAL_RULES,
+                                    ...data.mealRules
+                                };
+                                console.log('全データmealRules設定:', mergedMealRules);
+                                setMealRules(mergedMealRules);
+                            }
+                            if (data.kenshoku) setKenshoku(data.kenshoku);
+                            alert('✅ ' + result.message);
+                        } else {
+                            alert('❌ ' + result.message);
+                        }
+                    } catch (error) {
+                        console.error('全データCSV読み込み処理エラー:', error);
+                        alert('❌ 全データCSV読み込み中にエラーが発生しました: ' + error.message);
+                    }
+                };
+                input.click();
             };
 
-            const handleLoad = () => {
-                const result = Storage.loadFromLocal();
-                if (result.success) {
-                    const data = result.data;
-                    setYear(data.year);
-                    setMonth(data.month);
-                    setRoles(data.roles);
-                    setSchedule(data.schedule);
-                    setMealRules(data.mealRules || Constants.DEFAULT_MEAL_RULES);
-                    setKenshoku(data.kenshoku || Schedule.createEmptyKenshoku(dayNumbers));
-                }
+            const handleSaveMultiple = () => {
+                const result = Storage.saveMultipleCSV({ 
+                    year, month, roles, schedule, mealRules, kenshoku 
+                }, useCRLF);
                 alert(result.message);
             };
 
@@ -633,7 +709,16 @@
                     setDl({ ...dl, kind: 'menu' });
                     return;
                 }
-                const csvData = CSV.generateCSVData(kind, year, month, dayNumbers, schedule, kenshoku, roles, mealRules, useCRLF);
+                
+                let csvData;
+                if (kind === 'settings') {
+                    csvData = CSV.generateSettingsCSVData(roles, mealRules, useCRLF);
+                } else if (kind === 'complete') {
+                    csvData = CSV.generateCompleteCSVData({ year, month, roles, schedule, mealRules, kenshoku }, useCRLF);
+                } else {
+                    csvData = CSV.generateCSVData(kind, year, month, dayNumbers, schedule, kenshoku, roles, mealRules, useCRLF);
+                }
+                
                 setDl({ visible: true, kind, ...csvData });
             };
 
@@ -641,6 +726,8 @@
                 const success = await Utils.safeClipboardWrite(dl.text);
                 alert(success ? "クリップボードにコピーしました" : "コピーに失敗しました");
             };
+
+
 
             // 手動シフト設定
             const handleManualShift = (day, role, shift, slotIndex, name) => {
@@ -714,9 +801,11 @@
                     <Components.Header
                         onAutoAssign={handleAutoAssign}
                         onAutoAssignKenshoku={handleAutoAssignKenshoku}
-                        onSave={handleSave}
-                        onLoad={handleLoad}
                         onOpenCSV={handleOpenCSV}
+                        onSaveSettingsCSV={handleSaveSettingsCSV}
+                        onLoadSettingsCSV={handleLoadSettingsCSV}
+                        onSaveAllDataCSV={handleSaveAllDataCSV}
+                        onLoadAllDataCSV={handleLoadAllDataCSV}
                     />
 
                     <main className="mx-auto max-w-7xl px-4 py-6">
@@ -735,6 +824,9 @@
                                         </div>
                                         <div className="flex items-center text-xs text-white/70">
                                             <span>💡 スタッフ選択: クリックして検索可能</span>
+                                        </div>
+                                        <div className="flex items-center text-xs text-white/50">
+                                            <span>� デーレタ管理: ⚙️設定保存 💾全保存 📦一括保存 📥読込</span>
                                         </div>
                                     </div>
                                     <div className="text-xs text-slate-600">
@@ -1163,9 +1255,15 @@
                                                 </div>
                                             </div>
                                             <div className="text-sm text-slate-600">
-                                                対象者: {mealRules[meal].eligible.map(e => 
-                                                    `${e.role}(${e.shifts.join(",")})`
-                                                ).join(", ")}
+                                                対象者: {mealRules[meal].roles ? 
+                                                    mealRules[meal].roles.join(", ") : 
+                                                    (mealRules[meal].eligible ? 
+                                                        mealRules[meal].eligible.map(e => 
+                                                            `${e.role}(${e.shifts.join(",")})`
+                                                        ).join(", ") : 
+                                                        "設定なし"
+                                                    )
+                                                }
                                             </div>
                                         </div>
                                     ))}
