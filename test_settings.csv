@@ -1,0 +1,22 @@
+// 介護施設向け検食シフト作成システム - 設定データ
+// 出力日時: 2025/08/30 12:00:00
+
+# Staff Information
+role,name,active,meal_restrictions,shift_restrictions,notes
+看護師,田中太郎,true,,,"経験豊富"
+看護師,佐藤花子,true,夜食,夜,"夜勤制限あり"
+介護士,山田次郎,true,,,
+介護士,鈴木美咲,false,,,
+
+# Shift Requirements
+role,early,day,late,night
+看護師,1,2,1,1
+介護士,2,3,2,1
+相談員,0,1,0,0
+
+# Meal Rules
+meal,need,roles
+朝食,1,看護師;介護士
+昼食,1,看護師;介護士
+夕食,1,看護師;介護士
+夜食,1,看護師
